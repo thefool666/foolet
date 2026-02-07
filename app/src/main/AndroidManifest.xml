@@ -4,18 +4,23 @@
     <!-- 1. 网络权限 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- 2. 前台服务权限 (Android 9+ 需要) -->
+    <!-- 2. 前台服务基础权限 (Android 9+ 需要) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- Android 14+ 必须声明前台服务类型 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <!-- 3. Android 14+：VPN 属于 systemExempted 类型，需要此权限 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
     
-    <!-- 3. 通知权限 (Android 13+ 需要) -->
+    <!-- 4. 通知权限 (Android 13+ 需要) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- 4. 开机自启权限 -->
+    <!-- 5. 开机自启权限 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- 5. 存储权限 (用于读取 /sdcard/foolet/ 下的配置文件) -->
+    <!-- 6. 存储权限 -->
+    <!-- Android 11+ 全文件访问权限 (对应代码中的 Environment.isExternalStorageManager) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- 老式存储权限 (兼容性保留) -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
@@ -39,10 +44,12 @@
         </activity>
 
         <!-- VPN 服务声明 (核心) -->
+        <!-- Android 14+ 必须指定 android:foregroundServiceType="systemExempted" -->
         <service
             android:name=".jni.EasyTierVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false">
+            android:exported="false"
+            android:foregroundServiceType="systemExempted">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
@@ -55,7 +62,6 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <!-- 部分手机(如小米)需要这个 -->
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
