@@ -1,7 +1,6 @@
 name: Android CI
 
 on:
-  # 只保留这一行：仅允许在 GitHub 网页上手动点击运行
   workflow_dispatch:
 
 jobs:
@@ -17,12 +16,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
+      # 【关键修改】使用 Gradle Build Action，它会自动下载 Gradle，不需要你的仓库里有 gradlew
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          gradle-version: "8.2" # 指定一个版本
 
+      # 【关键修改】删掉 chmod 那一行
+      # 【关键修改】直接运行 gradle 命令，而不是 ./gradlew
       - name: Build with Gradle
-        # 使用 assembleDebug，因为目前没有配置签名证书，assembleRelease 会直接失败
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
