@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.net.VpnService
+import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.fool.et.MainActivity
@@ -16,10 +17,10 @@ class EasyTierVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var isRunning = false
-    
-    // 定义实例名称，用于标识不同的 VPN 连接
     private val instanceName = "easytier_main"
-    private val configPath = "/sdcard/easytier.toml" // 指定配置文件路径
+    
+    // 定义配置文件路径，与 MainActivity 保持完全一致
+    private val configPath = "${Environment.getExternalStorageDirectory().absolutePath}/foolet/easytier.toml"
 
     companion object {
         private const val TAG = "EasyTierVpnService"
@@ -33,91 +34,87 @@ class EasyTierVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 1. 启动前台通知 (必须，否则服务会挂)
+        // 前台通知必须启动，否则 Android 8.0+ 会杀掉服务
         startForeground(NOTIFICATION_ID, buildNotification())
 
-        // 2. 在子线程中执行耗时操作
         Thread {
             try {
-                Log.i(TAG, "启动 EasyTier VPN 服务...")
                 runVpnLogic()
             } catch (t: Throwable) {
                 Log.e(TAG, "VPN 服务运行出错", t)
-                EasyTierJNI.stopAllInstances() // 出错尝试停止
+                EasyTierJNI.stopAllInstances()
                 stopSelf()
             }
         }.start()
 
-        // 如果服务被杀，尝试重建
+        // 如果系统杀死服务，尝试重建
         return START_STICKY
     }
 
     private fun runVpnLogic() {
-        // 1. 读取 SD 卡配置文件
+        // 1. 读取配置文件
         val configFile = File(configPath)
         if (!configFile.exists()) {
-            Log.e(TAG, "配置文件不存在: $configPath")
+            Log.e(TAG, "致命错误: 启动后发现配置文件不存在: $configPath")
             stopSelf()
             return
         }
-        
+
         val configContent = configFile.readText()
-        Log.i(TAG, "配置文件读取成功，长度: ${configContent.length}")
+        Log.i(TAG, "读取配置文件成功: $configPath")
 
         // 2. 启动底层网络实例
         val ret = EasyTierJNI.runNetworkInstance(configContent)
         if (ret != 0) {
-            val err = EasyTierJNI.getLastError() ?: "Unknown error"
+            val err = EasyTierJNI.getLastError() ?: "Unknown native error"
             Log.e(TAG, "底层启动失败 (code=$ret): $err")
             stopSelf()
             return
         }
         Log.i(TAG, "底层网络实例启动成功")
 
-        // 3. 尝试从配置中提取 IP 地址 (用于构建 VpnInterface)
-        // 注意：这里用简单的正则匹配，如果你的 TOML 格式很复杂，可能需要调整
+        // 3. 从配置中提取 IP (必须的，用于建立 Tun 接口)
         val ipAddress = extractIpAddress(configContent) ?: run {
-            Log.e(TAG, "无法从配置文件中提取 IP 地址，请确保配置包含 ip = 'x.x.x.x/xx'")
+            Log.e(TAG, "无法解析配置文件中的 IP 地址，请确保包含类似 ip = '10.x.x.x/24' 的配置")
             stopSelf()
             return
         }
-        
-        Log.i(TAG, "提取到 IP 地址: $ipAddress")
+        Log.i(TAG, "提取到 IP: $ipAddress")
 
-        // 4. 建立 VPN 接口
+        // 4. 建立 VPN 接口并绑定
         setupVpnInterface(ipAddress)
     }
 
     private fun setupVpnInterface(ipv4Address: String) {
         try {
-            // 解析 IP 和 掩码长度
+            // 解析 IP 和掩码
             val (ip, mask) = parseIpAndMask(ipv4Address)
 
             val builder = Builder()
             builder.setSession("EasyTier VPN")
                     .addAddress(ip, mask)
-                    // 添加 DNS (可选，如果配置文件里有也可以不用这里加)
-                    .addDnsServer("223.5.5.5")
-                    .addRoute("0.0.0.0", 0) // 默认路由，让所有流量走 VPN
-                    // 如果只想走特定网段，可以根据配置文件调整 addRoute
+                    // 建议使用公共 DNS，或者根据需要移除，让 DHCP 处理
+                    .addDnsServer("223.5.5.5") 
+                    // 添加全路由 (根据需求，如果你只走组网，这里可以改为 addRoute("10.0.0.0", 8))
+                    .addRoute("0.0.0.0", 0)
 
             vpnInterface = builder.establish()
 
             if (vpnInterface == null) {
-                Log.e(TAG, "VPN 接口建立失败 (可能权限被拒)")
+                Log.e(TAG, "VPN 接口建立失败")
                 return
             }
 
-            Log.i(TAG, "VPN 接口建立成功 (FD: ${vpnInterface!!.fd})")
+            Log.i(TAG, "VPN 接口建立成功, FD: ${vpnInterface!!.fd}")
 
-            // 5. 将 FD 传给底层
+            // 5. 将 FD 传给底层 EasyTier
             val fd = vpnInterface!!.fd
             val setResult = EasyTierJNI.setTunFd(instanceName, fd)
-            
+
             if (setResult == 0) {
-                Log.i(TAG, "TUN FD 传递成功，VPN 就绪")
+                Log.i(TAG, "TUN FD 传递成功，连接建立完成")
                 isRunning = true
-                // 保持循环，防止线程退出
+                // 保持循环
                 while (isRunning) { Thread.sleep(1000) }
             } else {
                 Log.e(TAG, "TUN FD 传递失败 (code=$setResult)")
@@ -125,14 +122,14 @@ class EasyTierVpnService : VpnService() {
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "VPN 设置异常", e)
+            Log.e(TAG, "VPN 接口异常", e)
             cleanup()
         }
     }
 
     private fun cleanup() {
         isRunning = false
-        vpnInterface?.close()
+        try { vpnInterface?.close() } catch (e: Exception) {}
         vpnInterface = null
         EasyTierJNI.stopAllInstances()
     }
@@ -142,11 +139,11 @@ class EasyTierVpnService : VpnService() {
         cleanup()
     }
 
-    // --- 辅助工具方法 ---
+    // --- 工具方法 ---
 
     private fun extractIpAddress(toml: String): String? {
-        // 匹配类似 ip = "10.147.19.2/24" 的行
-        val regex = Regex("""ip\s*=\s*"([^"]+)"""")
+        // 简单的正则匹配，支持 ip = "..." 或 ip = '...'
+        val regex = Regex("""ip\s*=\s*['"]([^'"]+)['"]""")
         return regex.find(toml)?.groupValues?.get(1)
     }
 
@@ -159,9 +156,8 @@ class EasyTierVpnService : VpnService() {
         }
     }
 
-    // --- 通知相关 ---
     private fun createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "EasyTier Service", NotificationManager.IMPORTANCE_LOW)
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
@@ -174,10 +170,9 @@ class EasyTierVpnService : VpnService() {
 
         return Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("EasyTier VPN Running")
-                .setContentText("Service is running in background")
-                .setSmallIcon(android.R.drawable.ic_lock_lock) // 使用系统锁图标
+                .setContentText("Service is active")
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
                 .setContentIntent(pendingIntent)
                 .build()
     }
 }
-
