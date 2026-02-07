@@ -10,7 +10,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import com.fool.et.jni.EasyTierVpnService  // <--- 这一行非常关键
+import com.fool.et.jni.EasyTierVpnService
 
 class MainActivity : AppCompatActivity() {
 
@@ -46,10 +46,8 @@ class MainActivity : AppCompatActivity() {
     private fun ensureVpnPermission() {
         val intent = VpnService.prepare(this)
         if (intent != null) {
-            // 需要 VPN 权限，弹出系统对话框
             startActivityForResult(intent, VPN_REQUEST_CODE)
         } else {
-            // 已经授权过，直接启动
             startVpn()
         }
     }
