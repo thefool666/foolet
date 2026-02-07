@@ -1,47 +1,62 @@
 package com.fool.et
 
-import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 
 object ServiceUtils {
 
     /**
-     * 检查服务是否运行 (通过 ActivityManager 判断)
-     * @param context 上下文
-     * @param serviceClass 服务的 Class 对象
-     * @return true 如果服务正在运行
+     * 检查并请求“忽略电池优化”
      */
-    fun isServiceRunning(context: Context, serviceClass: Class<*>): Boolean {
-        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        // 获取当前正在运行的服务列表
-        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            // 对比服务全限定名
-            if (serviceClass.name == service.service.className) {
-                return true
+    fun requestIgnoreBatteryOptimizations(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent().apply {
+                action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                data = Uri.parse("package:${context.packageName}")
             }
+            context.startActivity(intent)
         }
-        return false
     }
 
     /**
-     * 检查是否在电池优化白名单中
-     * @param context 上下文
-     * @return true 如果已被忽略电池优化 (允许后台运行)
+     * 检查当前是否被“后台限制”
      */
-    fun isIgnoringBatteryOptimizations(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-            // 检查 AppOpsManager.OPSTR_IGNORE_BACKGROUND_RESTRICTIONS 是否被允许
-            val mode = appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_IGNORE_BACKGROUND_RESTRICTIONS,
-                android.os.Process.myUid(),
-                context.packageName
-            )
-            // MODE_ALLOWED 或 MODE_IGNORED 表示已放行
-            return mode == AppOpsManager.MODE_ALLOWED || mode == AppOpsManager.MODE_IGNORED
+    fun isBackgroundRestricted(context: Context): Boolean {
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
+
+        // API 30+ 才有 OPSTR_IGNORE_BACKGROUND_RESTRICTIONS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // 安全调用：使用兼容写法避免编译报错
+            val opStr = try {
+                AppOpsManager.OPSTR_IGNORE_BACKGROUND_RESTRICTIONS
+            } catch (e: Throwable) {
+                // 极个别 ROM 把这个常量搞丢了，做兜底
+                return false
+            }
+
+            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                appOps.unsafeCheckOpNoThrow(
+                    opStr,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                appOps.checkOpNoThrow(
+                    opStr,
+                    android.os.Process.myUid(),
+                    context.packageName
+                )
+            }
+
+            return result == AppOpsManager.MODE_IGNORED
         }
-        return true
+
+        // 低版本系统没有这个概念，直接返回 false
+        return false
     }
 }
