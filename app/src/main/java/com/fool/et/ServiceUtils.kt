@@ -27,42 +27,39 @@ object ServiceUtils {
 
     /**
      * 检查当前是否被“后台限制”
-     * 注意：该 API 在 Android 11 (API 30) 引入，低版本直接返回 false
+     *
+     * 说明：
+     * OPSTR_IGNORE_BACKGROUND_RESTRICTIONS 是 Android 11 (API 30) 引入的 AppOps 常量。
+     * 这里使用反射来避免在不同 compileSdk 下出现「Unresolved reference」的编译错误。
      */
     fun isBackgroundRestricted(context: Context): Boolean {
+        // Android 11 以下没有这个机制
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            // API < 30：没有这个限制概念
             return false
         }
 
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as? AppOpsManager ?: return false
 
-        // 兼容性获取 OPSTR_IGNORE_BACKGROUND_RESTRICTIONS
+        // 使用反射获取 OPSTR_IGNORE_BACKGROUND_RESTRICTIONS，避免编译期找不到常量
         val opStr = try {
-            // 先直接访问（绝大多数标准 ROM 都有）
-            AppOpsManager.OPSTR_IGNORE_BACKGROUND_RESTRICTIONS
+            val field = AppOpsManager::class.java.getDeclaredField("OPSTR_IGNORE_BACKGROUND_RESTRICTIONS")
+            field.isAccessible = true
+            field.get(null) as? String ?: return false
         } catch (e: Throwable) {
-            // 若编译期仍报“unresolved reference”，则改为反射（兜底）
-            try {
-                val field = AppOpsManager::class.java.getDeclaredField("OPSTR_IGNORE_BACKGROUND_RESTRICTIONS")
-                field.isAccessible = true
-                field.get(null) as? String ?: return false
-            } catch (reflectException: Throwable) {
-                // 真的找不到，就算未受限
-                return false
-            }
+            // 找不到常量，按「未受限」处理，避免崩溃
+            return false
         }
 
         val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // API 33+: 推荐使用 unsafeCheckOpNoThrow
+            // API 33+: 使用 unsafeCheckOpNoThrow
             appOps.unsafeCheckOpNoThrow(
                 opStr,
                 Process.myUid(),
                 context.packageName
             )
         } else {
+            // API 30 ~ 32: 保留使用 checkOpNoThrow
             @Suppress("DEPRECATION")
-            // API 30 ~ 32: 使用旧版 checkOpNoThrow
             appOps.checkOpNoThrow(
                 opStr,
                 Process.myUid(),
