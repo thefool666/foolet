@@ -3,6 +3,7 @@ package com.fool.et.jni
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent           // <--- 关键：补上这个 import
 import android.app.Service
 import android.content.Intent
 import android.net.VpnService
@@ -10,7 +11,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.fool.et.R  // <--- 这一行很关键，否则 Unresolved reference: R
+import com.fool.et.R
 
 class EasyTierVpnService : VpnService() {
 
@@ -112,7 +113,7 @@ class EasyTierVpnService : VpnService() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("EasyTier VPN")
             .setContentText(if (isRunning) "运行中" else "未运行")
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // 使用包名导入的 R
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
