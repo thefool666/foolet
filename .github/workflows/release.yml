@@ -1,27 +1,31 @@
 name: Android CI
 
 on:
-  # 只保留这一行，删除上面的 push 和 pull_request
-  workflow_dispatch:  
+  # 只保留这一行：仅允许在 GitHub 网页上手动点击运行
+  workflow_dispatch:
 
 jobs:
-  # ... 下面 jobs 部分保持不变 ...
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
-      - name: Set up JDK
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
       - name: Build with Gradle
-        run: ./gradlew assembleRelease
+        # 使用 assembleDebug，因为目前没有配置签名证书，assembleRelease 会直接失败
+        run: ./gradlew assembleDebug
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/*.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
